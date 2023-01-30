@@ -9,11 +9,11 @@ class Partner(models.Model):
         """Return the list of payer types needed in invoices to clasify accordingly to
         DGII requirements."""
         return [
-            ("taxpayer", _("Fiscal Tax Payer")),
-            ("non_payer", _("Non Tax Payer")),
-            ("minor", _("Minor expenses")),
-            ("nonprofit", _("Nonprofit Organization")),
-            ("special", _("special from Tax Paying")),
+            ("taxpayer", _("Contribuyente")),
+            ("non_payer", _("Cliente de Consumo")),
+            ("minor", _("Sin Fines de Lucro")),
+            ("nonprofit", _("Exento")),
+            #("special", _("special from Tax Paying")),
             ("governmental", _("Governmental")),
             ("foreigner", _("Foreigner")),
         ]
@@ -124,7 +124,7 @@ class Partner(models.Model):
                         elif partner.name and any(
                             [n for n in ("IGLESIA", "ZONA FRANCA") if n in partner.name]
                         ):
-                            partner.l10n_do_dgii_tax_payer_type = "special"
+                            partner.l10n_do_dgii_tax_payer_type = "nonprofit"
                         elif vat.startswith("1"):
                             partner.l10n_do_dgii_tax_payer_type = "taxpayer"
                         elif vat.startswith("4"):
