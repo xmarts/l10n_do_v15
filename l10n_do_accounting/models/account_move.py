@@ -324,19 +324,19 @@ class AccountMove(models.Model):
                 domain.append(("code", "in", codes))
         return domain
 
-    #def _get_document_type_sequence(self):
+    def _get_document_type_sequence(self):
         """ Return the match sequences for the given journal and invoice """
-        #self.ensure_one()
-        #if (
-         #   self.journal_id.l10n_latam_use_documents
-         #   and self.l10n_latam_country_code == "DO"
-        #):
-        #    res = self.journal_id.l10n_do_sequence_ids.filtered(
-         #       lambda x: x.l10n_latam_document_type_id
-          #      == self.l10n_latam_document_type_id
-           # )
-            #return res
-        #return super()._get_document_type_sequence()
+        self.ensure_one()
+        if (
+            self.journal_id.l10n_latam_use_documents
+            and self.l10n_latam_country_code == "DO"
+        ):
+            res = self.journal_id.l10n_do_sequence_ids.filtered(
+                lambda x: x.l10n_latam_document_type_id
+                == self.l10n_latam_document_type_id
+            )
+            return res
+        return super()._get_document_type_sequence()
 
     @api.constrains("move_type", "l10n_latam_document_type_id")
     def _check_invoice_type_document_type(self):
@@ -377,6 +377,7 @@ class AccountMove(models.Model):
             self.company_id.country_id == self.env.ref("base.do")
             and self.l10n_latam_document_type_id
             and self.move_type == "in_invoice"
+            and self.move_type == "out_invoice"
             and self.partner_id
         ):
             self.l10n_do_expense_type = (
