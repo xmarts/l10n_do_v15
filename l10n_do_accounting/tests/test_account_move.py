@@ -1,176 +1,718 @@
-from odoo import tools
-from odoo.tests.common import TransactionCase
-from odoo.modules.module import get_module_resource
+from . import common
+from odoo import fields
+from odoo.tests import tagged
+from odoo.exceptions import ValidationError
 
 
-class AccountMoveTest(TransactionCase):
-    def _load(self, module, *args):
-        tools.convert_file(
-            self.cr,
-            "l10n_do_accounting",
-            get_module_resource(module, *args),
-            {},
-            "init",
-            False,
-            "test",
-            self.registry._assertion_report,
-        )
+@tagged("post_install")
+class AccountMoveTest(common.L10nDOTestsCommon):
+    def test_001_invoice_ncf_types(self):
+        """
+        Check NCF invoice get correct document types domain.
+        Also checks manual document feature works correctly.
+        """
 
-    def setUp(self):
-        super(AccountMoveTest, self).setUp()
+        # # #
+        #  Sale Documents
+        # # #
 
-        # Minimal accounting setup
-        self._load("account", "test", "account_minimal_test.xml")
-
-        country_do = self.env.ref("base.do").id
-
-        # Company setup
-        company = self.env.user.company_id
-        company.write({"vat": "131793916", "country_id": country_do})
-
-        # Accounting setup
-        self.journal_obj = self.env["account.journal"]
-        posted_invoices = self.env["account.move"].search([("type", "!=", "entry")])
-        posted_invoices.button_draft()
-
-        for journal in self.journal_obj.search([("type", "in", ("sale", "purchase"))]):
-            journal.l10n_latam_use_documents = True
-
-        # Fiscal partner
-        self.partner = self.env["res.partner"].create(
-            {
-                "name": "Jimmy",
-                "vat": "40229590076",
-                "country_id": country_do,
-                "l10n_do_dgii_tax_payer_type": "taxpayer",
+        # Fiscal Tax Payer
+        ncf_sale_credito_fiscal_invoice = self._create_l10n_do_invoice(
+            data={
+                "document_number": "B0100000001",
             }
         )
-
-        # Demo product
-        self.product = self.env.ref("product.product_product_4")
-
-    def create_invoice(self, invoice_type, document_number="", expense_type=""):
-        inv = self.env["account.move"].create(
-            {
-                "type": invoice_type,
-                "partner_id": self.partner.id,
-                "l10n_latam_document_number": document_number,
-                "l10n_do_expense_type": expense_type,
-                "invoice_line_ids": [
-                    (
-                        0,
-                        0,
-                        {
-                            "product_id": self.product.id,
-                            "quantity": 1,
-                            "price_unit": 110.0,
-                        },
-                    )
-                ],
-            }
-        )
-        inv.post()
-        return inv
-
-    def test_001_account_move_cancel(self):
-        """
-        Check fiscal invoices button cancel function returns an action dict
-        """
-
-        in_invoice = self.create_invoice("in_invoice", "B0100000001", "02")
-        self.assertEqual(type(in_invoice.button_cancel()), type({}))
-
-        out_invoice = self.create_invoice("out_invoice")
-        self.assertEqual(type(out_invoice.button_cancel()), type({}))
-
-    def test_002_account_move_cancel(self):
-        """
-        Check normal account move cancel function doesn't get any
-        return value
-        """
-
-        journal = self.journal_obj.create(
-            {"name": "Misc Journal", "type": "general", "code": "CACA"}
+        self.assertEqual(
+            ncf_sale_credito_fiscal_invoice.l10n_latam_available_document_type_ids,
+            self.do_document_type["fiscal"],
+            "Tax Payer invoice must have only Credito Fiscal as available "
+            "document type",
         )
 
-        move = self.env["account.move"].create(
-            {
-                "journal_id": journal.id,
-                "line_ids": [
-                    (
-                        0,
-                        0,
-                        {
-                            "name": "2",
-                            "debit": 0.0,
-                            "credit": 100,
-                            "account_id": self.env.ref("l10n_do_accounting.xfa").id,
-                        },
-                    ),
-                    (
-                        0,
-                        0,
-                        {
-                            "name": "2",
-                            "debit": 100,
-                            "credit": 0.0,
-                            "account_id": self.env.ref("l10n_do_accounting.cas").id,
-                        },
-                    ),
-                ],
-            }
+        self.assertFalse(
+            ncf_sale_credito_fiscal_invoice.l10n_latam_manual_document_number
         )
 
-        self.assertEqual(move.button_cancel(), None)
-
-    def test_003_custom_refund_type(self):
-        """
-        Check Refunds using refund type feature are created correctly
-        """
-
-        # Customer Credit Notes
-        out_invoice = self.create_invoice("out_invoice")
-        refund_wizard = (
+        # Credit Note
+        ncf_sale_credito_fiscal_invoice._post()
+        fiscal_sale_credit_note_wizard = (
             self.env["account.move.reversal"]
-            .with_context(active_ids=out_invoice.ids, active_model=out_invoice._name)
-            .create({})
+            .with_context(
+                active_ids=ncf_sale_credito_fiscal_invoice.ids,
+                active_model="account.move",
+            )
+            .create(
+                {
+                    "refund_type": "percentage",
+                    "percentage": "5",
+                    "journal_id": ncf_sale_credito_fiscal_invoice[0].journal_id.id,
+                }
+            )
         )
-        refund_wizard.write(
-            {"refund_type": "percentage", "reason": "test", "percentage": 10}
+        reverse_move_id = self.env["account.move"].browse(
+            fiscal_sale_credit_note_wizard.reverse_moves()["res_id"]
         )
-        result_invoice = self.env["account.move"].browse(
-            refund_wizard.reverse_moves()["res_id"]
-        )
-        self.assertRecordValues(
-            result_invoice.line_ids,
-            [
-                {"name": "test", "price_unit": 11},
-                {"name": "", "price_unit": -11, "debit": 11, "credit": 0},
-            ],
+        self.assertFalse(reverse_move_id.l10n_latam_manual_document_number)
+        self.assertEqual(
+            reverse_move_id.l10n_latam_available_document_type_ids,
+            self.do_document_type["credit_note"],
+            "Non Tax Payer invoice must have Nota de Credito as available "
+            "document type",
         )
 
-        # Supplier Credit Notes
-        in_invoice = self.create_invoice("in_invoice", "B0100000001", "02")
-        refund_wizard = (
-            self.env["account.move.reversal"]
-            .with_context(active_ids=in_invoice.ids, active_model=in_invoice._name)
-            .create({})
+        # Debit Note
+        fiscal_sale_debit_note_wizard = (
+            self.env["account.debit.note"]
+            .with_context(
+                active_ids=ncf_sale_credito_fiscal_invoice.ids,
+                active_model="account.move",
+            )
+            .create(
+                {
+                    "l10n_do_debit_type": "percentage",
+                    "l10n_do_percentage": "5",
+                }
+            )
         )
-        refund_wizard.write(
-            {
-                "refund_type": "percentage",
-                "reason": "test",
-                "percentage": 15,
-                "l10n_latam_document_number": "B0400000001",
+        debit_move_id = self.env["account.move"].browse(
+            fiscal_sale_debit_note_wizard.create_debit()["res_id"]
+        )
+        self.assertFalse(debit_move_id.l10n_latam_manual_document_number)
+        self.assertEqual(
+            debit_move_id.l10n_latam_available_document_type_ids,
+            self.do_document_type["debit_note"],
+            "Tax Payer invoice must have Nota de Debito as available document type",
+        )
+
+        # Non Tax Payer
+        ncf_sale_consumo_invoice = self._create_l10n_do_invoice(
+            data={
+                "partner": self.consumo_partner,
+                "document_number": "B0200000001",
             }
         )
-        result_invoice = self.env["account.move"].browse(
-            refund_wizard.reverse_moves()["res_id"]
+        self.assertFalse(ncf_sale_consumo_invoice.l10n_latam_manual_document_number)
+        self.assertEqual(
+            ncf_sale_consumo_invoice.l10n_latam_available_document_type_ids,
+            self.env["l10n_latam.document.type"].browse(
+                (
+                    self.do_document_type["consumer"] + self.do_document_type["unique"]
+                ).ids
+            ),
+            "Non Tax Payer invoice must have Consumo and Unico Ingreso as available "
+            "document type",
         )
-        self.assertRecordValues(
-            result_invoice.line_ids,
-            [
-                {"name": "test", "price_unit": 16.5},
-                {"name": "", "price_unit": -16.5, "debit": 16.5, "credit": 0},
-            ],
+
+        # Nonprofit Organization
+        ncf_sale_special_invoice = self._create_l10n_do_invoice(
+            data={
+                "partner": self.special_partner,
+                "document_number": "B1400000001",
+            }
         )
+        self.assertFalse(ncf_sale_special_invoice.l10n_latam_manual_document_number)
+        self.assertEqual(
+            ncf_sale_special_invoice.l10n_latam_available_document_type_ids,
+            self.do_document_type["special"],
+            "Exempt from Tax Paying invoice must have Regimen Especial as available "
+            "document type",
+        )
+
+        # Governmental
+        ncf_sale_gov_invoice = self._create_l10n_do_invoice(
+            data={
+                "partner": self.gov_partner,
+                "document_number": "B1500000001",
+            }
+        )
+        self.assertFalse(ncf_sale_gov_invoice.l10n_latam_manual_document_number)
+        self.assertEqual(
+            ncf_sale_gov_invoice.l10n_latam_available_document_type_ids,
+            self.do_document_type["governmental"],
+            "Governmental invoice must have Gubernamental as available document type",
+        )
+
+        # Foreigner
+        ncf_sale_foreigner_invoice = self._create_l10n_do_invoice(
+            data={
+                "partner": self.foreigner_partner,
+                "document_number": "B0200000001",
+            }
+        )
+        self.assertFalse(ncf_sale_foreigner_invoice.l10n_latam_manual_document_number)
+        self.assertEqual(
+            ncf_sale_foreigner_invoice.l10n_latam_available_document_type_ids,
+            self.env["l10n_latam.document.type"].browse(
+                (
+                    self.do_document_type["consumer"] + self.do_document_type["export"]
+                ).ids
+            ),
+            "Foreigner invoice must have Consumo and Exportaciones as available "
+            "document type",
+        )
+
+        # # #
+        #  Purchase Documents
+        # # #
+
+        ncf_purchase_credito_fiscal_invoice = self._create_l10n_do_invoice(
+            data={
+                "document_number": "B0100000001",
+                "expense_type": "02",
+            },
+            invoice_type="in_invoice",
+        )
+        self.assertTrue(
+            ncf_purchase_credito_fiscal_invoice.l10n_latam_manual_document_number
+        )
+        self.assertEqual(
+            ncf_purchase_credito_fiscal_invoice.l10n_latam_available_document_type_ids,
+            self.env["l10n_latam.document.type"].browse(
+                (
+                    self.do_document_type["fiscal"] + self.do_document_type["e-fiscal"]
+                ).ids
+            ),
+            "Tax Payer invoice must have only Credito Fiscal as available "
+            "document type",
+        )
+
+        # Credit Note
+        ncf_purchase_credito_fiscal_invoice._post()
+        fiscal_purchase_credit_note_wizard = (
+            self.env["account.move.reversal"]
+            .with_context(
+                active_ids=ncf_purchase_credito_fiscal_invoice.ids,
+                active_model="account.move",
+            )
+            .create(
+                {
+                    "refund_type": "percentage",
+                    "percentage": "5",
+                    "l10n_latam_document_number": "B0400000001",
+                    "journal_id": ncf_purchase_credito_fiscal_invoice[0].journal_id.id,
+                }
+            )
+        )
+        reverse_move_id = self.env["account.move"].browse(
+            fiscal_purchase_credit_note_wizard.reverse_moves()["res_id"]
+        )
+        self.assertTrue(reverse_move_id.l10n_latam_manual_document_number)
+        self.assertEqual(
+            reverse_move_id.l10n_latam_available_document_type_ids,
+            self.env["l10n_latam.document.type"].browse(
+                (
+                    self.do_document_type["credit_note"]
+                    + self.do_document_type["e-credit_note"]
+                ).ids
+            ),
+            "Non Tax Payer invoice must have Nota de Credito as available "
+            "document type",
+        )
+
+        # TODO: revisar estos test.
+        #  Está provocando error en
+        #  odoo//addons/l10n_latam_invoice_document/models/account_move.py#L224
+
+        # Debit Note
+        # fiscal_purchase_debit_note_wizard = (
+        #     self.env["account.debit.note"]
+        #     .with_context(
+        #         active_ids=ncf_purchase_credito_fiscal_invoice.ids,
+        #         active_model="account.move",
+        #     )
+        #     .create(
+        #         {
+        #             "l10n_do_debit_type": "percentage",
+        #             "l10n_do_percentage": "5",
+        #             "l10n_latam_document_number": "B0300000001",
+        #         }
+        #     )
+        # )
+        # debit_move_id = self.env["account.move"].browse(
+        #     fiscal_purchase_debit_note_wizard.create_debit()["res_id"]
+        # )
+        # self.assertTrue(debit_move_id.l10n_latam_manual_document_number)
+        # self.assertEqual(
+        #     debit_move_id.l10n_latam_available_document_type_ids,
+        #     self.env["l10n_latam.document.type"].browse(
+        #         (
+        #             self.do_document_type["debit_note"]
+        #             + self.do_document_type["e-debit_note"]
+        #         ).ids
+        #     ),
+        #     "Tax Payer invoice must have Nota de Debito as available document type",
+        # )
+
+        ncf_purchase_compra_invoice = self._create_l10n_do_invoice(
+            data={
+                "partner": self.consumo_partner,
+                "document_number": "B1100000001",
+                "expense_type": "02",
+            },
+            invoice_type="in_invoice",
+        )
+        self.assertFalse(ncf_purchase_compra_invoice.l10n_latam_manual_document_number)
+        self.assertEqual(
+            ncf_purchase_compra_invoice.l10n_latam_available_document_type_ids,
+            self.env["l10n_latam.document.type"].browse(
+                (self.do_document_type["informal"] + self.do_document_type["minor"]).ids
+            ),
+            "Non Tax Payer invoice must have only Comprobante de Compra and Gasto Menor"
+            " as available document type",
+        )
+
+    def test_002_invoice_ecf_types(self):
+        """
+        Check ECF invoice get correct document types domain
+        """
+
+        self.do_company.l10n_do_ecf_issuer = True
+
+        # # #
+        #  Sale Documents
+        # # #
+
+        # Fiscal Tax Payer
+        ecf_sale_credito_fiscal_invoice = self._create_l10n_do_invoice(
+            data={"document_number": "E310000000001"}
+        )
+        self.assertFalse(
+            ecf_sale_credito_fiscal_invoice.l10n_latam_manual_document_number
+        )
+        self.assertEqual(
+            ecf_sale_credito_fiscal_invoice.l10n_latam_available_document_type_ids,
+            self.do_document_type["e-fiscal"],
+            "Tax Payer invoice must have only Credito Fiscal Electronica as available "
+            "document type",
+        )
+
+        # Credit Note
+        ecf_sale_credito_fiscal_invoice.with_context(testing=True)._post()
+        fiscal_sale_credit_note_wizard = (
+            self.env["account.move.reversal"]
+            .with_context(
+                active_ids=ecf_sale_credito_fiscal_invoice.ids,
+                active_model="account.move",
+            )
+            .create(
+                {
+                    "refund_type": "percentage",
+                    "percentage": "5",
+                    "journal_id": ecf_sale_credito_fiscal_invoice[0].journal_id.id,
+                }
+            )
+        )
+        reverse_move_id = self.env["account.move"].browse(
+            fiscal_sale_credit_note_wizard.reverse_moves()["res_id"]
+        )
+        self.assertFalse(reverse_move_id.l10n_latam_manual_document_number)
+        self.assertEqual(
+            reverse_move_id.l10n_latam_available_document_type_ids,
+            self.do_document_type["e-credit_note"],
+            "Non Tax Payer invoice must have Nota de Credito Electronica as available "
+            "document type",
+        )
+
+        # Debit Note
+        fiscal_sale_debit_note_wizard = (
+            self.env["account.debit.note"]
+            .with_context(
+                active_ids=ecf_sale_credito_fiscal_invoice.ids,
+                active_model="account.move",
+            )
+            .create(
+                {
+                    "l10n_do_debit_type": "percentage",
+                    "l10n_do_percentage": "5",
+                }
+            )
+        )
+        debit_move_id = self.env["account.move"].browse(
+            fiscal_sale_debit_note_wizard.create_debit()["res_id"]
+        )
+        self.assertFalse(debit_move_id.l10n_latam_manual_document_number)
+        self.assertEqual(
+            debit_move_id.l10n_latam_available_document_type_ids,
+            self.do_document_type["e-debit_note"],
+            "Tax Payer invoice must have Nota de Debito Electronica as available "
+            "document type",
+        )
+
+        # Non Tax Payer
+        ecf_sale_consumo_invoice = self._create_l10n_do_invoice(
+            data={
+                "partner": self.consumo_partner,
+                "document_number": "E320000000001",
+            }
+        )
+        self.assertFalse(ecf_sale_consumo_invoice.l10n_latam_manual_document_number)
+        self.assertEqual(
+            ecf_sale_consumo_invoice.l10n_latam_available_document_type_ids,
+            self.do_document_type["e-consumer"],
+            "Non Tax Payer invoice must have Consumo Electronico as available "
+            "document type",
+        )
+
+        # Nonprofit Organization
+        ecf_sale_special_invoice = self._create_l10n_do_invoice(
+            data={
+                "partner": self.special_partner,
+                "document_number": "E440000000001",
+            }
+        )
+        self.assertFalse(ecf_sale_special_invoice.l10n_latam_manual_document_number)
+        self.assertEqual(
+            ecf_sale_special_invoice.l10n_latam_available_document_type_ids,
+            self.do_document_type["e-special"],
+            "Exempt from Tax Paying invoice must have Regimen Especial Electronico as "
+            "available document type",
+        )
+
+        # Governmental
+        ecf_sale_gov_invoice = self._create_l10n_do_invoice(
+            data={
+                "partner": self.gov_partner,
+                "document_number": "E450000000001",
+            }
+        )
+        self.assertFalse(ecf_sale_gov_invoice.l10n_latam_manual_document_number)
+        self.assertEqual(
+            ecf_sale_gov_invoice.l10n_latam_available_document_type_ids,
+            self.do_document_type["e-governmental"],
+            "Governmental invoice must have Gubernamental Electronica as available "
+            "document type",
+        )
+
+        # Foreigner
+        ecf_sale_foreigner_invoice = self._create_l10n_do_invoice(
+            data={
+                "partner": self.foreigner_partner,
+                "document_number": "E320000000001",
+            }
+        )
+        self.assertFalse(ecf_sale_foreigner_invoice.l10n_latam_manual_document_number)
+        self.assertEqual(
+            ecf_sale_foreigner_invoice.l10n_latam_available_document_type_ids,
+            self.env["l10n_latam.document.type"].browse(
+                (
+                    self.do_document_type["e-consumer"]
+                    + self.do_document_type["e-export"]
+                ).ids
+            ),
+            "Foreigner invoice must have Consumo Electronica and Exportaciones "
+            "Electronica as available document type",
+        )
+
+        # # #
+        #  Purchase Documents
+        # # #
+
+        ecf_purchase_credito_fiscal_invoice = self._create_l10n_do_invoice(
+            data={
+                "document_number": "E310000000001",
+                "expense_type": "02",
+                "document_type": self.do_document_type["e-fiscal"],
+            },
+            invoice_type="in_invoice",
+        )
+        self.assertTrue(
+            ecf_purchase_credito_fiscal_invoice.l10n_latam_manual_document_number
+        )
+        self.assertEqual(
+            ecf_purchase_credito_fiscal_invoice.l10n_latam_available_document_type_ids,
+            self.env["l10n_latam.document.type"].browse(
+                (
+                    self.do_document_type["fiscal"] + self.do_document_type["e-fiscal"]
+                ).ids
+            ),
+            "Tax Payer invoice must have only Credito Fiscal as available "
+            "document type",
+        )
+
+        # Credit Note
+        ecf_purchase_credito_fiscal_invoice.with_context(testing=True)._post()
+        fiscal_purchase_credit_note_wizard = (
+            self.env["account.move.reversal"]
+            .with_context(
+                active_ids=ecf_purchase_credito_fiscal_invoice.ids,
+                active_model="account.move",
+            )
+            .create(
+                {
+                    "refund_type": "percentage",
+                    "percentage": "5",
+                    "l10n_latam_document_number": "B0400000001",
+                    "journal_id": ecf_purchase_credito_fiscal_invoice[0].journal_id.id,
+                }
+            )
+        )
+        reverse_move_id = self.env["account.move"].browse(
+            fiscal_purchase_credit_note_wizard.reverse_moves()["res_id"]
+        )
+        self.assertTrue(reverse_move_id.l10n_latam_manual_document_number)
+        self.assertEqual(
+            reverse_move_id.l10n_latam_available_document_type_ids,
+            self.env["l10n_latam.document.type"].browse(
+                (
+                    self.do_document_type["credit_note"]
+                    + self.do_document_type["e-credit_note"]
+                ).ids
+            ),
+            "Non Tax Payer invoice must have Nota de Credito and Nota de Credito "
+            "Electronica as available document type",
+        )
+
+        # TODO: revisar estos test.
+        #  Está provocando error en
+        #  odoo//addons/l10n_latam_invoice_document/models/account_move.py#L224
+
+        # Debit Note
+        # fiscal_purchase_debit_note_wizard = (
+        #     self.env["account.debit.note"]
+        #     .with_context(
+        #         active_ids=ecf_purchase_credito_fiscal_invoice.ids,
+        #         active_model="account.move",
+        #     )
+        #     .create(
+        #         {
+        #             "l10n_do_debit_type": "percentage",
+        #             "l10n_do_percentage": "5",
+        #             "l10n_latam_document_number": "B0300000001",
+        #         }
+        #     )
+        # )
+        # debit_move_id = self.env["account.move"].browse(
+        #     fiscal_purchase_debit_note_wizard.create_debit()["res_id"]
+        # )
+        # self.assertTrue(debit_move_id.l10n_latam_manual_document_number)
+        # self.assertEqual(
+        #     debit_move_id.l10n_latam_available_document_type_ids,
+        #     self.env["l10n_latam.document.type"].browse(
+        #         (
+        #             self.do_document_type["debit_note"]
+        #             + self.do_document_type["e-debit_note"]
+        #         ).ids
+        #     ),
+        #     "Tax Payer invoice must have Nota de Debito and Nota de Debito "
+        #     "Electronica as available document type",
+        # )
+
+        ecf_purchase_compra_invoice = self._create_l10n_do_invoice(
+            data={
+                "partner": self.consumo_partner,
+                "document_number": "E410000000001",
+                "expense_type": "02",
+            },
+            invoice_type="in_invoice",
+        )
+        self.assertFalse(ecf_purchase_compra_invoice.l10n_latam_manual_document_number)
+        self.assertEqual(
+            ecf_purchase_compra_invoice.l10n_latam_available_document_type_ids,
+            self.env["l10n_latam.document.type"].browse(
+                (
+                    self.do_document_type["e-informal"]
+                    + self.do_document_type["e-minor"]
+                ).ids
+            ),
+            "Non Tax Payer invoice must have only Comprobante de Compra Electronica "
+            "and Gasto Menor Electronica as available document type",
+        )
+
+    def test_003_enable_first_sequence(self):
+        """
+        Check enable first sequence feature works properly
+        """
+        # Sale invoice
+        sale_invoice_1_id = self._create_l10n_do_invoice(
+            data={
+                "document_number": "B0100000001",
+            }
+        )
+        self.assertTrue(sale_invoice_1_id.l10n_do_enable_first_sequence)
+        sale_invoice_1_id._post()
+
+        sale_invoice_2_id = self._create_l10n_do_invoice()
+        self.assertFalse(sale_invoice_2_id.l10n_do_enable_first_sequence)
+
+        # Purchase invoice
+        purchase_invoice_1_id = self._create_l10n_do_invoice(
+            data={
+                "partner": self.consumo_partner,
+                "document_number": "B1100000001",
+                "expense_type": "02",
+            },
+            invoice_type="in_invoice",
+        )
+        self.assertTrue(purchase_invoice_1_id.l10n_do_enable_first_sequence)
+        purchase_invoice_1_id._post()
+
+        purchase_invoice_2_id = self._create_l10n_do_invoice(
+            data={
+                "partner": self.consumo_partner,
+                "expense_type": "02",
+            },
+            invoice_type="in_invoice",
+        )
+        self.assertFalse(purchase_invoice_2_id.l10n_do_enable_first_sequence)
+
+    def test_004_is_ecf_invoice(self):
+        """
+        Check Is ECF Invoice feature works properly
+        """
+        sale_invoice_1_id = self._create_l10n_do_invoice(
+            data={
+                "document_number": "B0100000001",
+            }
+        )
+        self.assertFalse(sale_invoice_1_id.is_ecf_invoice)
+
+        self.do_company.l10n_do_ecf_issuer = True
+        sale_invoice_2_id = self._create_l10n_do_invoice(
+            data={"document_number": "E310000000001"}
+        )
+        self.assertTrue(sale_invoice_2_id.is_ecf_invoice)
+
+    def test_005_company_in_contingency(self):
+        """
+        Check Company in Contingency feature works properly
+        """
+        self.do_company.l10n_do_ecf_issuer = True
+        sale_invoice_1_id = self._create_l10n_do_invoice(
+            data={
+                "document_number": "E310000000001",
+            }
+        )
+        sale_invoice_1_id.with_context(testing=True)._post()
+
+        self.do_company.l10n_do_ecf_issuer = False
+
+        sale_invoice_2_id = self._create_l10n_do_invoice(
+            data={
+                "document_number": "B0100000001",
+            }
+        )
+        self.assertTrue(sale_invoice_2_id.l10n_do_company_in_contingency)
+
+    def test_006_invoice_electronic_stamp(self):
+        """
+        Check invoice electronic stamp feature works properly
+        """
+        stamp = (
+            "https%3A%2F%2Fecf.dgii.gov.do%2FTesteCF%2FConsultaTimbre%3FRncEmisor"
+            "%3D131793916%26RncComprador%3D131566332%26ENCF%3DE310000000001%26Fec"
+            "haEmision%3D16-10-2021%26MontoTotal%3D118%26FechaFirma%3D16-10-2021+"
+            "00%3A00%3A00%26CodigoSeguridad%3Du83ac1"
+        )
+
+        sign_date = "2021-10-16"
+        self.do_company.l10n_do_ecf_issuer = True
+        sale_invoice_1_id = self._create_l10n_do_invoice(
+            data={
+                "document_number": "E310000000001",
+                "invoice_date": sign_date,
+            }
+        )
+        sale_invoice_1_id.write(
+            {
+                "l10n_do_ecf_security_code": "u83ac1",
+                "l10n_do_ecf_sign_date": sign_date,
+            }
+        )
+        sale_invoice_1_id.with_context(testing=True)._post()
+        self.assertEqual(sale_invoice_1_id.l10n_do_electronic_stamp, stamp)
+
+    def test_007_unique_sequence_number(self):
+        """
+        Check unique sequence number constraint works properly.
+        It is also James Bond favorite test.
+        """
+
+        invoice_id = self._create_l10n_do_invoice(
+            data={
+                "document_number": "B0100000001",
+            }
+        )
+        invoice_id._post()
+
+        invoice_2 = self._create_l10n_do_invoice(
+            data={
+                "document_number": "B0100000002",
+            }
+        )
+        invoice_2._post()
+        with self.assertRaises(ValidationError):
+            invoice_2.write({"l10n_do_fiscal_number": "B0100000001"})
+
+    def test_008_check_sequence(self):
+        """
+        Check invoices get right internal & fiscal sequences
+        """
+
+        sale_invoice_1_id = self._create_l10n_do_invoice(
+            data={
+                "document_number": "B0100000001",
+            }
+        )
+        sale_invoice_1_id._post()
+        self.assertEqual(
+            sale_invoice_1_id.name, "INV/%s/0001" % fields.Date.today().year
+        )
+        self.assertEqual(sale_invoice_1_id.l10n_do_fiscal_number, "B0100000001")
+
+        sale_invoice_2_id = self._create_l10n_do_invoice()
+        sale_invoice_2_id._post()
+        self.assertEqual(
+            sale_invoice_2_id.name, "INV/%s/0002" % fields.Date.today().year
+        )
+        self.assertEqual(sale_invoice_2_id.l10n_do_fiscal_number, "B0100000002")
+
+        purchase_invoice_1_id = self._create_l10n_do_invoice(
+            data={
+                "document_number": "B0100000001",
+                "expense_type": "02",
+            },
+            invoice_type="in_invoice",
+        )
+        purchase_invoice_1_id._post()
+        self.assertEqual(
+            purchase_invoice_1_id.name, "BILL/%s/0001" % fields.Date.today().year
+        )
+        self.assertEqual(purchase_invoice_1_id.l10n_do_fiscal_number, "B0100000001")
+
+        purchase_invoice_2_id = self._create_l10n_do_invoice(
+            data={
+                "partner": self.consumo_partner,
+                "document_number": "B1100000001",
+                "expense_type": "02",
+            },
+            invoice_type="in_invoice",
+        )
+        purchase_invoice_2_id._post()
+        self.assertEqual(
+            purchase_invoice_2_id.name, "BILL/%s/0002" % fields.Date.today().year
+        )
+        self.assertEqual(purchase_invoice_2_id.l10n_do_fiscal_number, "B1100000001")
+
+    def test_009_invoice_sequence(self):
+        invoice_1 = self._create_l10n_do_invoice(
+            data={
+                "document_number": "B0100000001",
+            }
+        )
+        self.assertEqual(invoice_1.name, "INV/%s/0001" % invoice_1.date.year)
+        invoice_1._post()
+        self.assertEqual(invoice_1.l10n_do_fiscal_number, "B0100000001")
+
+        invoice_2 = self._create_l10n_do_invoice()
+        invoice_2._post()
+        self.assertEqual(invoice_2.name, "INV/%s/0002" % invoice_2.date.year)
+        self.assertEqual(invoice_2.l10n_do_fiscal_number, "B0100000002")
+
+    def test_010_ncf_format(self):
+        with self.assertRaises(ValidationError):
+            self._create_l10n_do_invoice(data={"document_number": "E0100000001"})
+
+        self.do_company.l10n_do_ecf_issuer = True
+
+        with self.assertRaises(ValidationError):
+            self._create_l10n_do_invoice(data={"document_number": "B310000000001"})

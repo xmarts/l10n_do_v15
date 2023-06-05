@@ -43,36 +43,26 @@ class L10nLatamDocumentType(models.Model):
         " operation type, the responsibility of both the issuer and the"
         " receptor of the document",
     )
+    l10n_do_ncf_expiration_date = fields.Date(  # Deprecated. Do not forward port.
+        string="NCF Expiration date",
+        required=True,
+        default=fields.Date.end_of(fields.Date.today(), "year"),
+    )
     internal_type = fields.Selection(
         selection_add=[
             ("in_invoice", "Supplier Invoices"),
             ("in_credit_note", "Supplier Credit Note"),
             ("in_debit_note", "Supplier Debit Note"),
-        ]
+        ],
+        ondelete={
+            "in_invoice": "cascade",
+            "in_credit_note": "cascade",
+            "in_debit_note": "cascade",
+        },
     )
     is_vat_required = fields.Boolean(
         default=False,
     )
-
-    def _get_document_sequence_vals(self, journal):
-        """ Values to create the sequences """
-        self.ensure_one()
-        values = {'name': '%s - %s' % (journal.name, self.name), 'padding': 8, 'prefix': self.code, 'code': self.doc_code_prefix + '-' + journal.name}
-
-        # values = super()._get_document_sequence_vals(journal)
-        if self.country_id != self.env.ref("base.do"):
-            return values
-
-        values.update(
-            {
-                "padding": 10 if str(self.l10n_do_ncf_type).startswith("e-") else 8,
-                "implementation": "no_gap",
-                "prefix": self.doc_code_prefix,
-                "l10n_latam_document_type_id": self.id,
-                "l10n_latam_journal_id": journal.id,
-            }
-        )
-        return values
 
     def _format_document_number(self, document_number):
         """Make validation of Import Dispatch Number
@@ -87,15 +77,14 @@ class L10nLatamDocumentType(models.Model):
             return False
 
         # NCF/ECF validation regex
-        # regex = (
-        #     r"^((P?(?=.{11})B)|(?=.{13})E)%s(\d{8}|\d{10})$"
-        #     % dict(self._get_l10n_do_ncf_types())[self.l10n_do_ncf_type]
-        # )
-        # pattern = compile(regex)
+        regex = r"^(P?((?=.{13})E)type(\d{10})|(((?=.{11})B))type(\d{8}))$".replace(
+            "type", dict(self._get_l10n_do_ncf_types())[self.l10n_do_ncf_type]
+        )
+        pattern = compile(regex)
 
-        # if not bool(pattern.match(document_number)):
-        if document_number[0] not in ('B','E') or len(document_number) not in (11,13):
+        if not bool(pattern.match(document_number)):
             raise ValidationError(
                 _("NCF %s doesn't have the correct structure") % document_number
             )
+
         return document_number
