@@ -10,7 +10,7 @@
     "website": "https://github.com/odoo-dominicana",
     "version": "15.0.0.10.3",
     # any module necessary for this one to work correctly
-    "depends": ["l10n_latam_invoice_document", "l10n_do"],
+    "depends": ["l10n_latam_invoice_document", "l10n_do", 'l10n_do_currency_update', 'l10n_do_debit_note', 'l10n_do_ncf_validation', 'l10n_do_purchase', 'l10n_do_rnc_search', 'l10n_do_rnc_validation', 'l10n_do_tax_payer_type_numbers_characters', 'l10n_latam_invoice_document_plus', 'partner_vat_unique'],
     # always loaded
     "data": [
         "security/ir.model.access.csv",
