@@ -179,7 +179,7 @@ class AccountDebitNote(models.TransientModel):
                     l10n_do_expense_type=move.l10n_do_expense_type,
                     l10n_do_income_type=move.l10n_do_income_type,
                     invoice_origin=move.name,
-                    is_debit_note=True,
+                    #is_debit_note=True,
                     ref=move.name,
                 )
             )

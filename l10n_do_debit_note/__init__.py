@@ -55,7 +55,7 @@ def post_init_hook(cr, registry):
                 if (
                     invoice_id
                     and str(invoice_id.ref)[1:3] in ("03", "33")
-                    and (not invoice_id.debit_origin_id or not invoice_id.is_debit_note)
+                    and (not invoice_id.debit_origin_id )
                 ):
                     _logger.info(
                         "Migrating data for debit note %s - %s of %s"
@@ -68,5 +68,5 @@ def post_init_hook(cr, registry):
                         ]
                     )
                     invoice_id.write(
-                        {"debit_origin_id": debit_origin_id.id, "is_debit_note": True}
+                        {"debit_origin_id": debit_origin_id.id}
                     )
