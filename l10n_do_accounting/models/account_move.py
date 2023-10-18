@@ -474,12 +474,9 @@ class AccountMove(models.Model):
     def _compute_name(self):
         super(AccountMove, self)._compute_name()
         for rec in self:
-            if not rec.ref:
-                if rec.l10n_latam_use_documents:
-                    rec.ref = '/'
             document_type_id = rec.l10n_latam_document_type_id
             if document_type_id.l10n_do_ncf_type and rec.posted_before:
-                if rec.ref == '/':
+                if not rec.ref:
                     sequence = self.env['ir.sequence'].search(
                         [
                             ("l10n_latam_journal_id", "=", rec.journal_id.id),
