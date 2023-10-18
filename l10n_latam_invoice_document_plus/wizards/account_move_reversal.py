@@ -45,9 +45,8 @@ class AccountMoveReversal(models.TransientModel):
                 'partner_id': self.move_ids.partner_id.id,
                 'company_id': self.move_ids.company_id.id,
             })
-            self.l10n_latam_document_type_id = self.move_ids[0].l10n_latam_document_type_id
             return {'domain': {
-                'l10n_latam_document_type_id': [('id', 'in', self.move_ids.l10n_latam_available_document_type_ids.ids)]}}
+                'l10n_latam_document_type_id': [('internal_type', 'in', ['credit_note']), ('country_id', '=', self.company_id.country_id.id)]}}
 
     def _prepare_default_reversal(self, move):
         """ Set the default document type and number in the new revsersal move taking into account the ones selected in
