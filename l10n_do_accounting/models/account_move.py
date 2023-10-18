@@ -277,32 +277,9 @@ class AccountMove(models.Model):
     @api.depends("ref")
     def _compute_l10n_latam_document_number(self):
         l10n_do_recs = self.filtered(lambda x: x.l10n_latam_country_code == "DO")
-        for rec in l10n_do_recs:
-            rec.l10n_latam_document_number = rec.ref
         remaining = self - l10n_do_recs
         remaining.l10n_latam_document_number = False
         super(AccountMove, remaining)._compute_l10n_latam_document_number()
-
-    @api.onchange("l10n_latam_document_type_id", "l10n_latam_document_number","name")
-    def _inverse_l10n_latam_document_number(self):
-        for rec in self.filtered("l10n_latam_document_type_id"):
-            if not rec.l10n_latam_document_number:
-                if rec.l10n_latam_use_documents:
-                    rec.ref = "/"
-            else:
-                document_type_id = rec.l10n_latam_document_type_id
-                if document_type_id.l10n_do_ncf_type:
-                    # document_number = document_type_id._format_document_number(rec.l10n_latam_document_number)
-                    document_number = rec.l10n_latam_document_number
-                else:
-                    document_number = rec.l10n_latam_document_number
-
-                if rec.l10n_latam_document_number != document_number:
-                    rec.l10n_latam_document_number = document_number
-                rec.ref = document_number
-        super(
-            AccountMove, self.filtered(lambda m: m.l10n_latam_country_code != "DO")
-        )._inverse_l10n_latam_document_number()
 
     def _get_l10n_latam_documents_domain(self):
         self.ensure_one()
@@ -377,7 +354,6 @@ class AccountMove(models.Model):
             self.company_id.country_id == self.env.ref("base.do")
             and self.l10n_latam_document_type_id
             and self.move_type == "in_invoice"
-            and self.move_type == "out_invoice"
             and self.partner_id
         ):
             self.l10n_do_expense_type = (
@@ -513,7 +489,7 @@ class AccountMove(models.Model):
                         # rec.ref = sequence.get_next_char(sequence.number_next_actual)
                         rec.ncf_expiration_date = sequence.expiration_date
                         rec.ref = self.env['ir.sequence'].next_by_code(sequence[0].code)
-                document_number = document_type_id._format_document_number(rec.ref)
+                document_number = document_type_id._format_document_number(rec.l10n_latam_document_number)
 
     def init(self):  # DO NOT FORWARD PORT
         cancelled_invoices = self.search(

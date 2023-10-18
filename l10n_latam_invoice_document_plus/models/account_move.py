@@ -18,7 +18,8 @@ class AccountMove(models.Model):
         states={'posted': [('readonly', True)]}, compute='_compute_l10n_latam_document_type', store=True)
     l10n_latam_sequence_id = fields.Many2one('ir.sequence', compute='_compute_l10n_latam_sequence')
     l10n_latam_document_number = fields.Char(
-        compute='_compute_l10n_latam_document_number', inverse='_inverse_l10n_latam_document_number',
+        # compute='_compute_l10n_latam_document_number',
+        # inverse='_inverse_l10n_latam_document_number',
         string='Document Number', readonly=True, states={'draft': [('readonly', False)]})
     l10n_latam_use_documents = fields.Boolean(related='journal_id.l10n_latam_use_documents')
     l10n_latam_country_code = fields.Char("Country Code (LATAM)",
@@ -28,28 +29,28 @@ class AccountMove(models.Model):
         """ If we use documents we update sequences only from journal """
         return super(AccountMove, self.filtered(lambda x: not x.l10n_latam_use_documents))._get_sequence_prefix()
 
-    @api.depends('name')
-    def _compute_l10n_latam_document_number(self):
-        recs_with_name = self.filtered(lambda x: x.name != '/')
-        for rec in recs_with_name:
-            name = rec.name
-            doc_code_prefix = rec.l10n_latam_document_type_id.doc_code_prefix
-            if doc_code_prefix and name:
-                name = name.split(" ", 1)[-1]
-            rec.l10n_latam_document_number = name
-        remaining = self - recs_with_name
-        remaining.l10n_latam_document_number = False
+    # @api.depends('name')
+    # def _compute_l10n_latam_document_number(self):
+    #     recs_with_name = self.filtered(lambda x: x.name != '/')
+    #     for rec in recs_with_name:
+    #         name = rec.name
+    #         doc_code_prefix = rec.l10n_latam_document_type_id.doc_code_prefix
+    #         if doc_code_prefix and name:
+    #             name = name.split(" ", 1)[-1]
+    #         rec.l10n_latam_document_number = name
+    #     remaining = self - recs_with_name
+    #     remaining.l10n_latam_document_number = False
 
-    @api.onchange('l10n_latam_document_type_id', 'l10n_latam_document_number')
-    def _inverse_l10n_latam_document_number(self):
-        for rec in self.filtered('l10n_latam_document_type_id'):
-            if not rec.l10n_latam_document_number:
-                rec.name = '/'
-            else:
-                l10n_latam_document_number = rec.l10n_latam_document_type_id._format_document_number(rec.l10n_latam_document_number)
-                if rec.l10n_latam_document_number != l10n_latam_document_number:
-                    rec.l10n_latam_document_number = l10n_latam_document_number
-                rec.name = "%s %s" % (rec.l10n_latam_document_type_id.doc_code_prefix, l10n_latam_document_number)
+    # @api.onchange('l10n_latam_document_type_id', 'l10n_latam_document_number')
+    # def _inverse_l10n_latam_document_number(self):
+    #     for rec in self.filtered('l10n_latam_document_type_id'):
+    #         if not rec.l10n_latam_document_number:
+    #             rec.name = '/'
+    #         else:
+    #             l10n_latam_document_number = rec.l10n_latam_document_type_id._format_document_number(rec.l10n_latam_document_number)
+    #             if rec.l10n_latam_document_number != l10n_latam_document_number:
+    #                 rec.l10n_latam_document_number = l10n_latam_document_number
+    #             rec.name = "%s %s" % (rec.l10n_latam_document_type_id.doc_code_prefix, l10n_latam_document_number)
 
     @api.depends('l10n_latam_document_type_id', 'journal_id')
     def _compute_l10n_latam_sequence(self):

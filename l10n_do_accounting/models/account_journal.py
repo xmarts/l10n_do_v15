@@ -115,10 +115,11 @@ class AccountJournal(models.Model):
             ][counterpart_partner.l10n_do_dgii_tax_payer_type]
             ncf_types = list(set(ncf_types) & set(counterpart_ncf_types))
         else:
-            raise ValidationError(
-                _("Partner %s is needed to issue a fiscal invoice")
-                % self._fields["l10n_do_dgii_tax_payer_type"].string
-            )
+            if counterpart_partner._fields.get("l10n_do_dgii_tax_payer_type", False):
+                raise ValidationError(
+                    _("The %s field of the Contact is needed to issue a tax invoice")
+                    % counterpart_partner._fields["l10n_do_dgii_tax_payer_type"].string
+                )
         if invoice.move_type in ["out_refund", "in_refund"]:
             ncf_types = ["credit_note"]
 

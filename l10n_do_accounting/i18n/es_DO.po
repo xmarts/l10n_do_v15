@@ -811,8 +811,8 @@ msgstr "Reembolso parcial"
 #. module: l10n_do_accounting_plus
 #: code:addons/l10n_do_accounting_plus/models/account_journal.py:0
 #, python-format
-msgid "Partner %s is needed to issue a fiscal invoice"
-msgstr "Se necesita el Contacto %s para emitir una factura fiscal"
+msgid "The %s field of the Contact is needed to issue a tax invoice"
+msgstr "Se necesita el campo %s  del Contacto para emitir una factura fiscal"
 
 #. module: l10n_do_accounting_plus
 #: model:ir.model.fields,field_description:l10n_do_accounting_plus.field_account_bank_statement_import_journal_creation__l10n_do_payment_form

@@ -39,15 +39,15 @@ class AccountMoveReversal(models.TransientModel):
     @api.onchange('move_ids')
     def _onchange_move_ids(self):
         if self.move_ids.l10n_latam_use_documents:
-            refund = self.move_ids.new({
+            self.move_ids.new({
                 'move_type': self._reverse_type_map(self.move_ids.move_type),
                 'journal_id': self.move_ids.journal_id.id,
                 'partner_id': self.move_ids.partner_id.id,
                 'company_id': self.move_ids.company_id.id,
             })
-            self.l10n_latam_document_type_id = refund.l10n_latam_document_type_id
+            self.l10n_latam_document_type_id = self.move_ids[0].l10n_latam_document_type_id
             return {'domain': {
-                'l10n_latam_document_type_id': [('id', 'in', refund.l10n_latam_available_document_type_ids.ids)]}}
+                'l10n_latam_document_type_id': [('id', 'in', self.move_ids.l10n_latam_available_document_type_ids.ids)]}}
 
     def _prepare_default_reversal(self, move):
         """ Set the default document type and number in the new revsersal move taking into account the ones selected in

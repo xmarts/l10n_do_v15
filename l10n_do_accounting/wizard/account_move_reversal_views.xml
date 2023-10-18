@@ -8,13 +8,12 @@
         <field name="inherit_id" ref="account.view_account_move_reversal"/>
         <field name="arch" type="xml">
             <field name="journal_id" position="after">
-                <!-- <field name="move_id" invisible="1"/> -->
-                <field name="l10n_latam_country_code" invisible="1"/>
                 <field name="is_ecf_invoice" invisible="1"/>
+                <field name="country_code" invisible="1"/>
             </field>
             <field name="l10n_latam_document_type_id" position="attributes">
                 <attribute name="attrs">{
-                    'invisible': ['|', '&amp;', ('refund_method', '=', 'refund'), ('l10n_latam_country_code', '!=', 'DO'), ('l10n_latam_country_code', '=', 'DO')],
+                    'invisible': ['|',('l10n_latam_use_documents', '=', False), ('country_code', '!=', 'DO')],
                     'required': [('l10n_latam_use_documents', '=', True), ('refund_method', '!=', 'refund')],
                 }</attribute>
             </field>
@@ -42,11 +41,11 @@
                        'required': [('refund_type', '=', 'fixed_amount')]}"/>
                 <field name="l10n_do_ecf_modification_code"
                        attrs="{'invisible': ['|', '|',
-                       ('l10n_latam_country_code', '!=', 'DO'),
+                       ('country_code', '!=', 'DO'),
                        ('move_type', '!=', 'out_invoice'),
                        ('is_ecf_invoice', '=', False),
                        ], 'required': [
-                       ('l10n_latam_country_code', '=', 'DO'),
+                       ('country_code', '=', 'DO'),
                        ('move_type', '=', 'out_invoice'),
                        ('is_ecf_invoice', '=', True),
                 ]}"/>
