@@ -7,7 +7,7 @@ class IrSequence(models.Model):
     expiration_date = fields.Date(
         string="NCF Expiration date",
         default=fields.Date.end_of(
-            fields.Date.today().replace(year=fields.Date.today().year + 1), "year"
+            fields.Date.today().replace(month=12, year=fields.Date.today().year + 1), "year"
         ),
     )
     # l10n_latam_journal_id = fields.Many2one('account.journal', 'Journal')
